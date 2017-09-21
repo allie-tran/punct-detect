@@ -3,6 +3,12 @@ import numpy as np
 from collections import defaultdict
 from tensorflow.python.framework import random_seed
 from collections import namedtuple
+from keras.models import Sequential
+from keras.layers import Activation, TimeDistributed, Dense, RepeatVector, recurrent, Embedding
+from keras.layers.recurrent import LSTM
+from keras.optimizers import Adam, RMSprop
+from nltk import FreqDist
+import os
 
 Datasets = namedtuple('Datasets', ['train', 'test'])
 Sentence = namedtuple('Sentence',['words', 'puncts'])
@@ -113,8 +119,12 @@ class PunctData():
 
     def id_to_word(self,id):
         return self._id_to_word[id]
+    def get_id_to_word(self,id):
+        return self._id_to_word
     def word_to_id(self,word):
         return self._index_dict[word]
+    def get_word_to_id(self,word):
+        return self._index_dict
     def punct(self,id):
         if id == 0:
             return 'O'
@@ -122,7 +132,42 @@ class PunctData():
             return ','
         return '.'
 
-
 train = PunctData(r'../data/news/train.txt',10,padding=True)
 test = PunctData(r'../data/news/test.txt',10,index_dict=train.get_index_dict(), padding=True)
 data = Datasets(train=train,test=test)
+
+def create_model(X_vocab_len, X_max_len, y_vocab_len, y_max_len, hidden_size, num_layers):
+    model = Sequential()
+
+    # Creating encoder network
+    model.add(Embedding(X_vocab_len, 1000, input_length=X_max_len, mask_zero=True))
+    model.add(LSTM(hidden_size))
+    model.add(RepeatVector(y_max_len))
+
+    # Creating decoder network
+    for _ in range(num_layers):
+        model.add(LSTM(hidden_size, return_sequences=True))
+    model.add(TimeDistributed(Dense(y_vocab_len)))
+    model.add(Activation('softmax'))
+    model.compile(loss='categorical_crossentropy',
+            optimizer='rmsprop',
+            metrics=['accuracy'])
+    return model
+
+def process_data(word_sentences, max_len, word_to_ix):
+    # Vectorizing each element in each sequence
+    sequences = np.zeros((len(word_sentences), max_len, len(word_to_ix)))
+    for i, sentence in enumerate(word_sentences):
+        for j, word in enumerate(sentence):
+            sequences[i, j, word] = 1.
+    return sequences
+
+def find_checkpoint_file(folder):
+    checkpoint_file = [f for f in os.listdir(folder) if 'checkpoint' in f]
+    if len(checkpoint_file) == 0:
+        return []
+    modified_time = [os.path.getmtime(f) for f in checkpoint_file]
+    return checkpoint_file[np.argmax(modified_time)]
+
+punct_to_id = {'O':0,',':1,'.':2}
+id_to_punct = {0:'O',1:',',2:'.'}
