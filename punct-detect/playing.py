@@ -55,6 +55,7 @@ model.compile(optimizer=rms, loss = 'categorical_crossentropy',metrics=['accurac
 # Input must be three-dimensional, comprised of samples, timesteps, and features.
 length = 100
 X = np.array([i/float(length) for i in range(length)])
+
 res = [0] * 40 + [1] * 20 + [2] * 40
 y = indices_to_one_hot(res,3)
 # y = res

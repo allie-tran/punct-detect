@@ -1,101 +1,117 @@
-from __future__ import print_function
-from keras.preprocessing.sequence import pad_sequences
+from random import randint
+from keras.models import Sequential, load_model
+from keras.layers import LSTM, Dense, Activation, RepeatVector, TimeDistributed
+from keras import optimizers
+from collections import namedtuple
+
 import numpy as np
-import sys
 
-import argparse
-from .input import *
+from punct_detect_utils import *
 
-ap = argparse.ArgumentParser()
-ap.add_argument('-max_len', type=int, default=200)
-ap.add_argument('-vocab_size', type=int, default=len(train.get_index_dict()))
-ap.add_argument('-batch_size', type=int, default=100)
-ap.add_argument('-layer_num', type=int, default=3)
-ap.add_argument('-hidden_dim', type=int, default=1000)
-ap.add_argument('-nb_epoch', type=int, default=20)
-ap.add_argument('-mode', default='train')
-args = vars(ap.parse_args())
+# configurations
+BATCH_SIZE = 100
+vocab_size = len(word_to_id)
+punct_types = 3
+time_steps = 100
 
-MAX_LEN = args['max_len']
-VOCAB_SIZE = args['vocab_size']
-BATCH_SIZE = args['batch_size']
-LAYER_NUM = args['layer_num']
-HIDDEN_DIM = args['hidden_dim']
-NB_EPOCH = args['nb_epoch']
-MODE = args['mode']
+load = True
 
-if __name__ == '__main__':
-	# Loading input sequences, output sequences and the necessary mapping dictionaries
-	print('[INFO] Loading data...')
-	X, y = train.get_data()
-	X_word_to_ix = train.get_word_to_id()
-	X_vocab_len = len(X_word_to_ix)
-	X_ix_to_word = train.get_id_to_word()
-	y_vocab_len = 3
-	y_word_to_ix, y_ix_to_word = punct_to_id,id_to_punct
-	
-	# Finding the length of the longest sequence
-	X_max_len = max([len(sentence) for sentence in X])
-	y_max_len = max([len(sentence) for sentence in y])
-	
-	# Padding zeros to make all sequences have a same length with the longest one
-	print('[INFO] Zero padding...')
-	X = pad_sequences(X, maxlen=X_max_len, dtype='int32')
-	y = pad_sequences(y, maxlen=y_max_len, dtype='int32')
-	
-	# Creating the network model
-	print('[INFO] Compiling model...')
-	model = create_model(X_vocab_len, X_max_len, y_vocab_len, y_max_len, HIDDEN_DIM, LAYER_NUM)
-	
-	# Finding trained weights of previous epoch if any
-	saved_weights = find_checkpoint_file('.')
-	#
-	# Training only if we chose training mode
-	if MODE == 'train':
-		k_start = 1
-		
-		# If any trained weight was found, then load them into the model
-		if len(saved_weights) != 0:
-			print('[INFO] Saved weights found, loading...')
-			epoch = saved_weights[saved_weights.rfind('_') + 1:saved_weights.rfind('.')]
-			model.load_weights(saved_weights)
-			k_start = int(epoch) + 1
+def indices_to_one_hot(data, nb_classes):
+	"""Convert an iterable of indices to one-hot encoded labels."""
+	targets = np.array(data).reshape(-1)
+	return np.eye(nb_classes)[targets]
 
-		i_end = 0
-		for k in range(k_start, NB_EPOCH + 1):
-			# Shuffling the training data every epoch to avoid local minima
-			indices = np.arange(len(X))
-			np.random.shuffle(indices)
-			X = X[indices]
-			y = y[indices]
-			
-			# Training 1000 sequences at a time
-			for i in range(0, len(X), 1000):
-				if i + 1000 >= len(X):
-					i_end = len(X)
-				else:
-					i_end = i + 1000
-				y_sequences = process_data(y[i:i_end], y_max_len, y_word_to_ix)
-				
-				print('[INFO] Training model: epoch {}th {}/{} samples'.format(k, i, len(X)))
-				model.fit(X[i:i_end], y_sequences, batch_size=BATCH_SIZE, nb_epoch=1, verbose=2)
-			model.save_weights('checkpoint_epoch_{}.hdf5'.format(k))
-	
-	# Performing test if we chose test mode
+# Input must be three-dimensional, comprised of samples, timesteps, and features.
+def get_data(train_or_test="train"):
+	if train_or_test == "train":
+		X = indices_to_one_hot(ids, vocab_size)[:149300]
+		y = indices_to_one_hot(p_ids, punct_types)[:149300]
 	else:
-		# Only performing test if there is any saved weights
-		if len(saved_weights) == 0:
-			print("The network hasn't been trained! Program will exit...")
-			sys.exit()
-		else:
-			X_test = test.get_data(), test.get_word_to_id(), len(test.get_word_to_id())
-			X_test = pad_sequences(X_test, maxlen=X_max_len, dtype='int32')
-			model.load_weights(saved_weights)
-			
-			predictions = np.argmax(model.predict(X_test), axis=2)
-			sequences = []
-			for prediction in predictions:
-				sequence = ' '.join([y_ix_to_word(index) for index in prediction if index > 0])
-				print(sequence)
-				sequences.append(sequence)
-			np.savetxt('test_result', sequences, fmt='%s')
+		X = indices_to_one_hot(test_ids, vocab_size)[:89100]
+		y = indices_to_one_hot(test_p_ids, punct_types)[:89100]
+	
+	X = X.reshape(-1, time_steps, vocab_size)  # columns are timesteps with 1 feature
+	y = y.reshape(-1, time_steps, punct_types)
+	# print(X)
+	# print(y)
+	return X, y
+
+X, y = get_data("train")
+
+model = Sequential()
+
+if load == False:
+	# ***********************************************************************#
+	# ***********************************************************************#
+	# 1. DEFINING
+	model.add(LSTM(100, input_shape=(time_steps, vocab_size), return_sequences=True))
+	model.add(
+		TimeDistributed(Dense(punct_types, activation='softmax')))  # fully-connected layer, outputting a prediction
+	# The choice of activation function is most important for the output layer
+	# as it will define the format that predictions will take.
+	
+	# Regression: Linear activation function, or ‘linear’, and the number of neurons matching the number of outputs.
+	# Binary Classification (2 class): Logistic activation function, or ‘sigmoid’, and one neuron the output layer.
+	# Multiclass Classification (>2 class): Softmax activation function, or ‘softmax’,
+	# and one output neuron per class value, assuming a one-hot encoded output pattern.
+	# model.add(Activation('softmax'))
+	
+	# ***********************************************************************#
+	# ***********************************************************************#
+	# 2. COMPILING
+	
+	# LOSS
+	# Regression: Mean Squared Error or ‘mean_squared_error’.
+	# Binary Classification (2 class): Logarithmic Loss, also called cross entropy or ‘binary_crossentropy‘.
+	# Multiclass Classification (>2 class): Multiclass Logarithmic Loss or ‘categorical_crossentropy‘.
+	
+	# optimization
+	# Stochastic Gradient Descent, or ‘sgd‘, that requires the tuning of a learning rate and momentum.
+	# ADAM, or ‘adam‘, that requires the tuning of learning rate.
+	# RMSprop, or ‘rmsprop‘, that requires the tuning of learning rate.
+	rms = optimizers.rmsprop(lr=0.001)
+	model.compile(optimizer=rms, loss='categorical_crossentropy', metrics=['accuracy'])
+	
+	# ***********************************************************************#
+	# ***********************************************************************#
+	# 3. FITTING
+	# Once the network is compiled, it can be fit, which means adapt the weights on a training dataset.
+	
+	# The network is trained using the backpropagation algorithm and optimized
+	# according to the optimization algorithm and loss function specified when compiling the model.
+	
+	# The first layer in the network must define the number of inputs to expect.
+	
+	# You can reduce the amount of information displayed to just the loss each epoch by
+	# setting the verbose argument to 2.
+	# You can turn off all output by setting verbose to 1. For example:
+	history = model.fit(X, y, batch_size=BATCH_SIZE, nb_epoch=100, verbose=2)
+	
+	model.save('finished_model.h5')
+else:
+	model = load_model('finished_model.h5')
+# 4. EVALUATION
+# # on new dataset
+# X_eval = np.array([0.2,0.5,0.8])
+# X_eval = X_eval.reshape((X_eval.shape[0],1,1))
+# y_eval = np.array([0.5,0.8,0.2])
+# For example, for a model compiled with the accuracy metric
+# loss, acc = model.evaluate(X, y)
+# print(loss)
+# 5. MAKE PREDICTIONS
+print('Predicting...')
+with open('train_result.txt', 'w',encoding='utf_8') as f:
+	predictions = model.predict_classes(X)
+	predictions = predictions.reshape(-1)
+	preds = [id_to_punct[p_ids] for p_ids in predictions]
+	for i in range(149300):
+		f.write("{word} {punct} {pred}\n".format(word=words[i],punct=puncts[i], pred=preds[i]))
+
+with open('test_result.txt', 'w',encoding='utf_8') as f:
+	X, y = get_data(train_or_test="test")
+	predictions = model.predict_classes(X)
+	predictions = predictions.reshape(-1)
+	preds = [id_to_punct[p_ids] for p_ids in predictions]
+	for i in range(89100):
+		f.write("{word} {punct} {pred}\n".format(word=test_words[i], punct=results[i], pred=preds[i]))
+		# print(acc)
