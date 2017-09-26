@@ -139,4 +139,5 @@ def statistic(s):
     f.close()
 
 if __name__ == "__main__":
-    statistic('test_result.txt')
+    statistic('../result/test_result.txt')
+    statistic('../result/train_result.txt')
