@@ -1,18 +1,19 @@
 from keras.models import Sequential, load_model
 from keras.layers import LSTM, Dense, Activation, RepeatVector, TimeDistributed, Embedding
+from keras.callbacks import ModelCheckpoint
 from keras import optimizers
 
 from punct_detect_utils import *
 
 # configurations & arguments
-BATCH_SIZE = 100
+BATCH_SIZE = 200
 VOCAB_SIZE = len(word_to_id)
 PUNCT_TYPES = 3 # O, COMMA, PERIOD
-TIME_STEPS = 100
+TIME_STEPS = 50
 TRAINING_SIZE = 149300
 TESTING_SIZE = 89100
-EMBEDDING_SIZE = 1000
-NUM_EPOCH = 100
+EMBEDDING_SIZE = 128
+NUM_EPOCH = 200
 
 # Input must be 3D, comprised of samples, timesteps, and features.
 def get_data(train_or_test="train"):
@@ -44,24 +45,37 @@ def run(trained = False):
 	
 	if not trained:
 		model.add(Embedding(input_dim= VOCAB_SIZE, output_dim = EMBEDDING_SIZE))
-		model.add(LSTM(100, input_shape=(TIME_STEPS, EMBEDDING_SIZE),
+		
+		# ----------------------------------------- #
+		# ------------------- NEW ----------------- #
+		model.add(LSTM(128, input_shape=(TIME_STEPS, EMBEDDING_SIZE)))
+		model.add(RepeatVector(TIME_STEPS))
+		# now: model.output_shape == (None, TIME_STEPS, features)
+		# ----------------------------------------- #
+		
+		model.add(LSTM(128, input_shape=(TIME_STEPS, EMBEDDING_SIZE),
 		               return_sequences=True))
 		model.add(TimeDistributed(Dense(PUNCT_TYPES, activation='softmax')))
 		
 		# 2. COMPILING
-		rms = optimizers.rmsprop(lr=0.001)
+		rms = optimizers.rmsprop(lr=0.0001)
 		model.compile(optimizer=rms,
 		              loss='categorical_crossentropy',
 		              metrics=['accuracy'])
-	
-		# 3. FITTING
-		history = model.fit(X, y, batch_size=BATCH_SIZE,
-		                    nb_epoch=NUM_EPOCH, verbose=2)
 		
-		# 5. SAVING
-		model.save('finished_model.h5')
-	else:
-		model = load_model('finished_model.h5')
+		# 3. CHECKPOINTS
+		checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss',
+		                             verbose=1, save_best_only=True,
+		                             mode='min')
+		callbacks_list = [checkpoint]
+		
+		# 4. FITTING
+		history = model.fit(X, y, validation_split= 0.33, batch_size=BATCH_SIZE,
+		                    nb_epoch=NUM_EPOCH, verbose=2,
+		                    callbacks=callbacks_list)
+		
+	# 5. LOAD BEST MODEL
+	# model = load_model('best_model.h5')
 	
 	# 6. EVALUATION
 	# loss, acc = model.evaluate(X, y)
