@@ -1,12 +1,13 @@
 import sys
 import re
+import pandas as pd
 
 def statistic(s):
     with open(s,'r',encoding="utf_8") as f:
         l = f.readlines()
-    f.close
     f = open(s+ '.stats' ,'w', encoding="utf_8")
-
+    writer = pd.ExcelWriter(s+'.xlsx', engine='xlsxwriter')
+    
     label = []
     for line in l:
         if line == '\n': continue
@@ -126,6 +127,15 @@ def statistic(s):
     f.write(line_break)
     f.write('OVERALL ACCURACY: ' +str(100*accuracy) + ' %\n')
     f.write(line_break)
+    
+    res = pd.DataFrame({' ': list(inv_d.values()) + ['Macro', 'Micro'],
+                       'Recall': recall + [macro_r, micro_r],
+                       'Precision':precision + [macro_p, micro_p],
+                       'F_1 score': f_1 + [macro_f1, micro_f]}
+                       )
+    res.to_excel(writer, sheet_name='Sheet1')
+    writer.save()
+
     for i in range(num_class):
         f.write(inv_d[i] + ':\n')
         f.write('\t Recall: ' + str(100*recall[i]) + ' %\n')

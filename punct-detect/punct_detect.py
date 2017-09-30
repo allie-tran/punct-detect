@@ -1,19 +1,23 @@
 from keras.models import Sequential, load_model
-from keras.layers import LSTM, Dense, Activation, RepeatVector, TimeDistributed, Embedding
-from keras.callbacks import ModelCheckpoint
+from keras.layers import LSTM, Dense, Activation, RepeatVector, TimeDistributed, Embedding, Bidirectional, Dropout
+from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import optimizers
+from sklearn.utils import class_weight
+
+
 
 from punct_detect_utils import *
 
 # configurations & arguments
-BATCH_SIZE = 200
+BATCH_SIZE = 8
 VOCAB_SIZE = len(word_to_id)
-PUNCT_TYPES = 3 # O, COMMA, PERIOD
-TIME_STEPS = 50
-TRAINING_SIZE = 149300
-TESTING_SIZE = 89100
+PUNCT_TYPES = len(punct_to_id) # O, COMMA, PERIOD
+TIME_STEPS = max_length
+TRAINING_SIZE = (len(ids)//(TIME_STEPS*BATCH_SIZE)) * (TIME_STEPS*BATCH_SIZE)
+TESTING_SIZE = (len(test_ids)//(TIME_STEPS*BATCH_SIZE)) * (TIME_STEPS*BATCH_SIZE)
 EMBEDDING_SIZE = 128
-NUM_EPOCH = 200
+NUM_EPOCH = 50
+LEARNING_RATE = 0.001
 
 # Input must be 3D, comprised of samples, timesteps, and features.
 def get_data(train_or_test="train"):
@@ -33,12 +37,16 @@ def get_data(train_or_test="train"):
 	return X, y
 
 
+
 # *************************************************************************** #
 # ******************************* BEGIN HERE ******************************** #
 # *************************************************************************** #
 
 def run(trained = False):
 	X, y = get_data("train")
+	weight = class_weight.compute_class_weight('balanced',
+	                                           np.unique(p_ids[:TRAINING_SIZE]),
+	                                           p_ids[:TRAINING_SIZE])
 	
 	# 1. DEFINING THE MODEL
 	model = Sequential()
@@ -48,18 +56,20 @@ def run(trained = False):
 		
 		# ----------------------------------------- #
 		# ------------------- NEW ----------------- #
-		model.add(LSTM(128, input_shape=(TIME_STEPS, EMBEDDING_SIZE)))
-		model.add(RepeatVector(TIME_STEPS))
+		# model.add(LSTM(128, input_shape=(TIME_STEPS, EMBEDDING_SIZE)))
+		# model.add(RepeatVector(TIME_STEPS))
 		# now: model.output_shape == (None, TIME_STEPS, features)
 		# ----------------------------------------- #
 		
-		model.add(LSTM(128, input_shape=(TIME_STEPS, EMBEDDING_SIZE),
-		               return_sequences=True))
+		model.add(Bidirectional(LSTM(128, input_shape=(TIME_STEPS, EMBEDDING_SIZE),
+		               return_sequences=True)))
+		model.add(Activation('softmax'))
+		model.add(Dropout(0.2))
 		model.add(TimeDistributed(Dense(PUNCT_TYPES, activation='softmax')))
 		
 		# 2. COMPILING
-		rms = optimizers.rmsprop(lr=0.0001)
-		model.compile(optimizer=rms,
+		opt = optimizers.adam(lr=LEARNING_RATE)
+		model.compile(optimizer=opt,
 		              loss='categorical_crossentropy',
 		              metrics=['accuracy'])
 		
@@ -67,15 +77,17 @@ def run(trained = False):
 		checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss',
 		                             verbose=1, save_best_only=True,
 		                             mode='min')
-		callbacks_list = [checkpoint]
-		
+		earlyStopping = EarlyStopping(monitor='val_loss', patience=5, verbose=0, mode='min',min_delta=1e-5)
+		callbacks_list = [checkpoint, earlyStopping]
 		# 4. FITTING
-		history = model.fit(X, y, validation_split= 0.33, batch_size=BATCH_SIZE,
-		                    nb_epoch=NUM_EPOCH, verbose=2,
-		                    callbacks=callbacks_list)
+		model.summary()
+		history = model.fit(X, y, validation_split= 0.2, batch_size=BATCH_SIZE,
+		                    epochs=NUM_EPOCH, verbose=2,
+		                    callbacks=callbacks_list, class_weight=weight)
+		model.save("final_model.h5")
 		
 	# 5. LOAD BEST MODEL
-	# model = load_model('best_model.h5')
+	model = load_model('best_model.h5')
 	
 	# 6. EVALUATION
 	# loss, acc = model.evaluate(X, y)
@@ -89,7 +101,8 @@ def run(trained = False):
 		# change from id to punctuations
 		preds = [id_to_punct[p_ids] for p_ids in predictions]
 		for i in range(TRAINING_SIZE):
-			f.write("{word} {punct} {pred}\n".format(word=words[i],
+			if words[i] != '<PAD>':
+				f.write("{word} {punct} {pred}\n".format(word=words[i],
 			                                         punct=puncts[i],
 			                                         pred=preds[i]))
 	
@@ -100,11 +113,12 @@ def run(trained = False):
 		predictions = predictions.reshape(-1)
 		preds = [id_to_punct[p_ids] for p_ids in predictions]
 		for i in range(TESTING_SIZE):
-			f.write("{word} {punct} {pred}\n".format(word=test_words[i],
+			if test_words[i] != '<PAD>':
+				f.write("{word} {punct} {pred}\n".format(word=test_words[i],
 			                                         punct=results[i],
 			                                         pred=preds[i]))
 
 
 if __name__ == "__main__":
-	trained = input("Use trained model? (y/n):")
-	run(trained=="y")
+	# trained = input("Use trained model? (y/n):")
+	run(False)

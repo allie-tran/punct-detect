@@ -7,15 +7,14 @@ import numpy as np
 Sentence = namedtuple('Sentence',['words', 'puncts'])
 Sentence_in_ID = namedtuple('Sentence_in_ID',['ids','p_ids'])
 
-punct_to_id = {'O':0,'COMMA':1,'PERIOD':2}
-id_to_punct = {0:'O',1:'COMMA',2:'PERIOD'}
-
 def indices_to_one_hot(data, nb_classes):
     """Convert an iterable of indices to one-hot encoded labels."""
     targets = np.array(data).reshape(-1)
     return np.eye(nb_classes)[targets]
 
-def read_data(file,word_to_id=None,punct_to_id=None):
+def read_data(file, cutting_freq = 5,
+              word_to_id=None, id_to_word = None,
+              punct_to_id=None, id_to_punct=None):
 	"""Return:
 	data: an array of (sentence, puncts)
 	id_to_word: an index-to-word dictionary of words in all sentences
@@ -31,16 +30,6 @@ def read_data(file,word_to_id=None,punct_to_id=None):
 		puncts = [line[1] if len(line) > 0 else None for line in lines]
 		freq_dict = FreqDist(words)
 		
-		# Creating index dictionary
-		if word_to_id is None:
-			word_to_id = defaultdict(lambda: 1)
-			word_to_id['<PAD>'] = 0,
-			word_to_id['<UNK>'] = 1
-			most_common = freq_dict.most_common(len(freq_dict))
-			order_list = [word for (word, _) in most_common]
-			for i, word in enumerate(order_list):
-				word_to_id[word] = i + 2
-			
 		# Removing empty lines
 		new_words = []
 		new_puncts = []
@@ -49,9 +38,54 @@ def read_data(file,word_to_id=None,punct_to_id=None):
 				continue
 			new_words.append(words[i])
 			new_puncts.append(puncts[i])
-		return new_words, new_puncts, word_to_id
+		
+		words = new_words
+		puncts = new_puncts
+		
+		# Creating index dictionary for words
+		if word_to_id is None:
+			word_to_id = defaultdict(lambda: 1)
+			word_to_id['<PAD>'] = 0
+			word_to_id['<UNK>'] = 1
+			id_to_word = defaultdict(lambda: '<UNK>')
+			most_common = freq_dict.most_common(len(freq_dict))
+			order_list = [word for (word, freq) in most_common
+			              if freq>cutting_freq]
+			for i, word in enumerate(order_list):
+				word_to_id[word] = i + 2
+				id_to_word[i + 2] = word
+				
+		# Creating index dictionary for punctuations
+		if punct_to_id is None:
+			punct_to_id = defaultdict(lambda: 0)
+			punct_list = np.unique(puncts+['O'])
+			id_to_punct = {}
+			for i, punct in enumerate(punct_list):
+				punct_to_id[punct] = i
+				id_to_punct[i] = punct
+		
+		# Padding
+		pad_words = []
+		pad_puncts = []
+		max_length = 86
+		start_index = 0
+		for end_index in end_indexes:
+			max_length = max(max_length,end_index-start_index+1)
+			start_index = end_index + 1
+			
+		start_index = 0
+		for end_index in end_indexes:
+			pad_puncts = pad_puncts + puncts[start_index: end_index]
+			pad_words = pad_words + words[start_index:end_index]
+			padding = max_length - (end_index-start_index+1)
+			if padding>0:
+				pad_words += ['<PAD>'] * padding
+				pad_puncts += ['O'] * padding
+			start_index = end_index + 1
+		
+		return pad_words, pad_puncts, word_to_id, id_to_word, punct_to_id, id_to_punct, max_length
 
-def process_data(words,puncts,word_to_id):
+def process_data(words,puncts,word_to_id,punct_to_id):
 	"""Change words and punctuations into indexes"""
 	ids = []
 	p_ids = []
@@ -61,15 +95,12 @@ def process_data(words,puncts,word_to_id):
 	return ids,p_ids
 
 
-words, puncts, word_to_id = read_data(r'../data/news/train.txt')
-ids,p_ids = process_data(words,puncts,word_to_id)
-id_to_word = {id: word for word,id in word_to_id.items()}
-test_words, results, _ = read_data(r'../data/news/test.txt',word_to_id)
-test_ids,test_p_ids = process_data(test_words,results,word_to_id)
+words, puncts, word_to_id, id_to_word, punct_to_id, id_to_punct, max1 = \
+	read_data(r'../data/run/punc/punc.tr',5)
+ids,p_ids = process_data(words,puncts,word_to_id,punct_to_id)
 
-
-def indices_to_one_hot(data, nb_classes):
-	"""Convert an iterable of indices to one-hot encoded labels."""
-	targets = np.array(data).reshape(-1)
-	return np.eye(nb_classes)[targets]
-
+test_words, results, _ , _ , _, _, max2= \
+	read_data(r'../data/run/punc/punc.ts',5,
+	          word_to_id,id_to_word,punct_to_id,id_to_punct)
+test_ids,test_p_ids = process_data(test_words,results,word_to_id,punct_to_id)
+max_length = max(max1,max2)
