@@ -67,7 +67,7 @@ def read_data(file, cutting_freq = 5,
 		# Padding
 		pad_words = []
 		pad_puncts = []
-		max_length = 86
+		max_length = 231
 		start_index = 0
 		for end_index in end_indexes:
 			max_length = max(max_length,end_index-start_index+1)
@@ -75,12 +75,14 @@ def read_data(file, cutting_freq = 5,
 			
 		start_index = 0
 		for end_index in end_indexes:
-			pad_puncts = pad_puncts + puncts[start_index: end_index]
-			pad_words = pad_words + words[start_index:end_index]
+			p = puncts[start_index: end_index]
+			w = words[start_index:end_index]
 			padding = max_length - (end_index-start_index+1)
 			if padding>0:
-				pad_words += ['<PAD>'] * padding
-				pad_puncts += ['O'] * padding
+				w = ['<PAD>'] * padding + w
+				p = ['O'] * padding + p
+			pad_puncts = pad_puncts + p
+			pad_words = pad_words + w
 			start_index = end_index + 1
 		
 		return pad_words, pad_puncts, word_to_id, id_to_word, punct_to_id, id_to_punct, max_length
