@@ -6,6 +6,8 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import optimizers
 import keras.backend as K
 from sklearn.utils import class_weight
+from keras.utils import plot_model
+
 
 from punct_detect_utils import *
 from numpy.random import seed
@@ -15,16 +17,16 @@ set_random_seed(2)
 
 
 # configurations & arguments
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 VOCAB_SIZE = len(word_to_id)
 PUNCT_TYPES = len(punct_to_id) # O, COMMA, PERIOD
 TIME_STEPS = 81
-TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * 256 #* (len(ids)//(TIME_STEPS*BATCH_SIZE))
-TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * 256 #* (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
+TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(ids)//(TIME_STEPS*BATCH_SIZE))
+TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
 EMBEDDING_SIZE = 64
 HIDDEN = 64
-NUM_EPOCH = 100
-LEARNING_RATE = 0.0001
+NUM_EPOCH = 500
+LEARNING_RATE = 0.001
 
 # Input must be 3D, comprised of samples, timesteps, and features.
 def get_data(train_or_test="train"):
@@ -54,6 +56,11 @@ def run(trained = False):
 	weight = class_weight.compute_class_weight('balanced',
 	                                           np.unique(p_ids[:TRAINING_SIZE]),
 	                                           p_ids[:TRAINING_SIZE])
+	unique = np.unique(p_ids)
+	d_weights = np.ones(len(unique))
+	for i in range(len(unique)):
+		d_weights[punct_to_id[unique[i]]] = weight[i]
+	weight = d_weights
 	# 1. DEFINING THE MODEL
 	# 1.1 The LSTM  model -  output_shape = (batch, step, hidden)
 	lstm = Sequential()
@@ -116,6 +123,7 @@ def run(trained = False):
 		lstm.summary()
 		attention.summary()
 		model.summary()
+		plot_model(model, to_file='model.png')
 		model.fit(X, y, validation_split= 0.2, batch_size=BATCH_SIZE,
 		                    epochs=NUM_EPOCH, verbose=2,
 		                    callbacks=callbacks_list, class_weight=weight)
