@@ -58,11 +58,11 @@ def read_data(file, cutting_freq = 5,
 		# Creating index dictionary for punctuations
 		if punct_to_id is None:
 			punct_to_id = defaultdict(lambda: 0)
-			punct_list = np.unique(puncts+['O'])
-			id_to_punct = {}
+			punct_list = np.unique(puncts)
+			id_to_punct = defaultdict(lambda: 'O')
 			for i, punct in enumerate(punct_list):
-				punct_to_id[punct] = i
-				id_to_punct[i] = punct
+				punct_to_id[punct] = i+1
+				id_to_punct[i+1] = punct
 		
 		# Padding
 		pad_words = []
@@ -80,7 +80,7 @@ def read_data(file, cutting_freq = 5,
 			padding = max_length - (end_index-start_index+1)
 			if padding>0:
 				w = ['<PAD>'] * padding + w
-				p = ['O'] * padding + p
+				p = ['<PAD>'] * padding + p
 			pad_puncts = pad_puncts + p
 			pad_words = pad_words + w
 			start_index = end_index + 1

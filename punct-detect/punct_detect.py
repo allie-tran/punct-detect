@@ -8,23 +8,18 @@ import keras.backend as K
 from sklearn.utils import class_weight
 
 from punct_detect_utils import *
-from numpy.random import seed
-seed(1)
-from tensorflow import set_random_seed
-set_random_seed(2)
-
 
 # configurations & arguments
 BATCH_SIZE = 16
 VOCAB_SIZE = len(word_to_id)
 PUNCT_TYPES = len(punct_to_id) # O, COMMA, PERIOD
-TIME_STEPS = 81
-TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * 256 #* (len(ids)//(TIME_STEPS*BATCH_SIZE))
-TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * 256 #* (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
-EMBEDDING_SIZE = 64
-HIDDEN = 64
+TIME_STEPS = 86
+TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * 64 #* (len(ids)//(TIME_STEPS*BATCH_SIZE))
+TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * 64 #* (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
+EMBEDDING_SIZE = 128
+HIDDEN = 128
 NUM_EPOCH = 100
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001
 
 # Input must be 3D, comprised of samples, timesteps, and features.
 def get_data(train_or_test="train"):
@@ -51,10 +46,22 @@ def get_data(train_or_test="train"):
 
 def run(trained = False):
 	X, y = get_data("train")
+	unique = np.unique(puncts)
 	weight = class_weight.compute_class_weight('balanced',
-	                                           np.unique(p_ids[:TRAINING_SIZE]),
-	                                           p_ids[:TRAINING_SIZE])
-	# 1. DEFINING THE MODEL
+	                                           unique,
+	                                           puncts[:TRAINING_SIZE])
+	print(unique)
+	print([punct_to_id[u] for u in unique])
+	idx = indices_to_one_hot([punct_to_id[u] for u in unique],len(unique))
+	print(idx)
+	print(weight)
+	d_weight = np.ones([len(unique)])
+	for i in range(len(weight)):
+		if unique[i] == '<PAD>':
+			weight[i] = 0
+		d_weight[punct_to_id[unique[i]]] = weight[i]
+	print(d_weight)
+ 	# 1. DEFINING THE MODEL
 	# 1.1 The LSTM  model -  output_shape = (batch, step, hidden)
 	lstm = Sequential()
 	lstm.add(Embedding(input_dim=VOCAB_SIZE, input_length=TIME_STEPS,
@@ -78,9 +85,11 @@ def run(trained = False):
 	# after reshape : output_shape = (batch, step, hidden)
 	attention = Sequential()
 	attention.add(lstm)
+	attention.add(Dropout(0.2))
 	attention.add(Dense(1, input_shape=(TIME_STEPS, VOCAB_SIZE),
 	                    activation='tanh',kernel_initializer='he_uniform'))
 	attention.add(Flatten())
+	attention.add(Dropout(0.2))
 	attention.add(Activation('softmax'))
 	attention.add(RepeatVector(2 * HIDDEN))
 	att = Permute([2, 1])
@@ -102,7 +111,9 @@ def run(trained = False):
 	opt = optimizers.rmsprop(lr=LEARNING_RATE)
 	model.compile(optimizer=opt,
 	              loss='categorical_crossentropy',
-	              metrics=['categorical_accuracy'])
+	              metrics=['categorical_accuracy'],
+	              weighted_metrics=['categorical_accuracy'],
+	              sample_weight_mode='temporal')
 	
 	# 3. CHECKPOINTS
 	checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss',
@@ -118,7 +129,7 @@ def run(trained = False):
 		model.summary()
 		model.fit(X, y, validation_split= 0.2, batch_size=BATCH_SIZE,
 		                    epochs=NUM_EPOCH, verbose=2,
-		                    callbacks=callbacks_list, class_weight=weight)
+		                    callbacks=callbacks_list, class_weight=d_weight)
 		model.save_weights("final_model.h5")
 		
 	# 5. LOAD BEST MODEL

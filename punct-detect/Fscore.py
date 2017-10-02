@@ -15,10 +15,10 @@ def statistic(s):
         arr = line.split(' ')
         
         tag = arr[-2]
-        if tag != 'O' and tag not in label and len(tag) >= 1:
+        if tag != '<PAD>' and tag not in label and len(tag) >= 1:
           label.append(tag)
 
-    label.append('O')
+    label.append('<PAD>')
     predict = []
     d = dict()
     inv_d = dict()
@@ -32,10 +32,9 @@ def statistic(s):
 
     #punction=[".",",",";",":","!","?",u"\u2026"]
     num_class = len(label)
-    cfm = [ [0 for i in range(num_class)] for j in range(num_class)]
+    cfm = [[0 for i in range(num_class)] for j in range(num_class)]
     correct = 0.0
     L = 0
-
     TP = 0.0
     FP = 0.0
     FN = 0.0
@@ -63,7 +62,7 @@ def statistic(s):
         if predict_idx in predict and predict_idx != true_idx:
             FP += 1    
         
-
+    
     recall = []
     precision = []
     f_1 = []
@@ -95,7 +94,7 @@ def statistic(s):
             f_score = 0
         
         f_1.append(f_score)
-
+    
     class_freq = 'CLASS FREQUENCY:\n '
     for j in range(num_class):
         class_freq += '\t' + inv_d[j] + ': ' + str(float(frequencies[j])*100 / L) + '%\n'
@@ -115,7 +114,7 @@ def statistic(s):
     sumTP = 0.0
     micro_r = TP / (TP + FN)
     micro_p = TP / (TP + FP)
-    micro_f = 2*micro_r * micro_p / (micro_r + micro_p)
+    micro_f = 2*(micro_r * micro_p) / (micro_r + micro_p)
     micro = 'MICRO AVERAGE:\n\t Recall: ' + str(100*micro_r) + ' %\n\t Precision: ' + str(100*micro_p) + ' %\n\t F_1 score: '  + str(100*micro_f) + ' %\n'   
 
 
