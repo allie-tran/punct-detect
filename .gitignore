@@ -102,3 +102,6 @@ code/env/
 
 # mypy
 .mypy_cache/
+
+# result
+.xlsx
