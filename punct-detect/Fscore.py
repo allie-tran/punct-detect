@@ -115,7 +115,7 @@ def statistic(s):
     sumTP = 0.0
     micro_r = TP / (TP + FN)
     micro_p = TP / (TP + FP)
-    micro_f = 2*micro_r * micro_p / (micro_r + micro_p)
+    micro_f = 2*(micro_r * micro_p) / (micro_r + micro_p)
     micro = 'MICRO AVERAGE:\n\t Recall: ' + str(100*micro_r) + ' %\n\t Precision: ' + str(100*micro_p) + ' %\n\t F_1 score: '  + str(100*micro_f) + ' %\n'   
 
 
