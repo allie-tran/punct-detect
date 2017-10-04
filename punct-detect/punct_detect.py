@@ -4,9 +4,14 @@ from keras.layers import Flatten, Permute, Lambda, Merge, Reshape
 from keras.layers.merge import Multiply,multiply
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import optimizers
+from keras.regularizers import l2 # L2-regularisation
 import keras.backend as K
 from sklearn.utils import class_weight
 from keras.utils import plot_model
+import matplotlib.pyplot as plt
+import os
+
+os.environ["PATH"] += os.pathsep + 'C:/Program Files (x86)/Graphviz2.38/bin/'
 
 
 from punct_detect_utils import *
@@ -21,8 +26,8 @@ BATCH_SIZE = 16
 VOCAB_SIZE = len(word_to_id)
 PUNCT_TYPES = len(punct_to_id) # O, COMMA, PERIOD
 TIME_STEPS = 86
-TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * 64 #* (len(ids)//(TIME_STEPS*BATCH_SIZE))
-TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * 64 #* (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
+TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(ids)//(TIME_STEPS*BATCH_SIZE))
+TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
 EMBEDDING_SIZE = 128
 HIDDEN = 128
 NUM_EPOCH = 100
@@ -64,8 +69,8 @@ def run(trained = False):
 	print(weight)
 	d_weight = np.ones([len(unique)])
 	for i in range(len(weight)):
-		if unique[i] == '<PAD>':
-			weight[i] = 0
+		if unique[i] == 'O':
+			weight[i] *= 50
 		d_weight[punct_to_id[unique[i]]] = weight[i]
 	print(d_weight)
  	# 1. DEFINING THE MODEL
@@ -81,7 +86,8 @@ def run(trained = False):
 	# now: model.output_shape == (None, TIME_STEPS, features)
 	# ----------------------------------------- #
 	history = Bidirectional(LSTM(HIDDEN, return_sequences=True,
-	                             kernel_initializer='lecun_uniform'))
+	                             kernel_initializer='lecun_uniform',
+	                             kernel_regularizer=l2(0.0001)))
 	lstm.add(history)
 	# lstm.add(Reshape((TIME_STEPS,HIDDEN)))
 	# lstm.add(Dense(HIDDEN, activation="softmax"))
@@ -92,12 +98,13 @@ def run(trained = False):
 	# after reshape : output_shape = (batch, step, hidden)
 	attention = Sequential()
 	attention.add(lstm)
-	attention.add(Dropout(0.2))
+	attention.add(Dropout(0.5))
 	attention.add(Dense(1, input_shape=(TIME_STEPS, VOCAB_SIZE),
-	                    activation='tanh',kernel_initializer='he_uniform'))
+	                    activation='tanh',kernel_initializer='he_uniform',name='tanh',
+	                    kernel_regularizer=l2(0.0001)))
 	attention.add(Flatten())
-	attention.add(Dropout(0.2))
-	attention.add(Activation('softmax'))
+	attention.add(Dropout(0.5))
+	attention.add(Activation('softmax',name='softmax'))
 	attention.add(RepeatVector(2 * HIDDEN))
 	att = Permute([2, 1])
 	attention.add(att)
@@ -110,23 +117,23 @@ def run(trained = False):
 	# -----------------------------------------#
 	# -----------------------------------------#
 	# model.add(RepeatVector(1))
-	model.add(Dropout(0.2))
-	model.add(TimeDistributed(Dense(PUNCT_TYPES, activation='softmax')))
+	model.add(Activation('tanh'))
+	model.add(Dropout(0.5))
+	model.add(TimeDistributed(Dense(PUNCT_TYPES, activation='softmax',
+	                                kernel_initializer='glorot_uniform')))
 	
 	# 2. COMPILING
 	
-	opt = optimizers.rmsprop(lr=LEARNING_RATE)
+	opt = optimizers.adam(lr=LEARNING_RATE)
 	model.compile(optimizer=opt,
-	              loss='categorical_crossentropy',
-	              metrics=['categorical_accuracy'],
-	              weighted_metrics=['categorical_accuracy'],
-	              sample_weight_mode='temporal')
+	              loss=weighted_categorical_crossentropy(d_weight),
+	              metrics=['categorical_accuracy'])
 	
 	# 3. CHECKPOINTS
 	checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss',
 	                             verbose=1, save_best_only=True,
 	                             mode='min',save_weights_only=True)
-	earlyStopping = EarlyStopping(monitor='val_loss', patience=10, verbose=0, mode='min', min_delta=1e-5)
+	earlyStopping = EarlyStopping(monitor='val_loss', patience=5, verbose=0, mode='min', min_delta=1e-5)
 	callbacks_list = [earlyStopping, checkpoint]
 	
 	if not trained:
@@ -135,10 +142,29 @@ def run(trained = False):
 		attention.summary()
 		model.summary()
 		plot_model(model, to_file='model.png')
-		model.fit(X, y, validation_split= 0.2, batch_size=BATCH_SIZE,
+		history = model.fit(X, y, validation_split= 0.33, batch_size=BATCH_SIZE,
 		                    epochs=NUM_EPOCH, verbose=2,
-		                    callbacks=callbacks_list, class_weight=d_weight)
+		                    callbacks=callbacks_list)
 		model.save_weights("final_model.h5")
+		
+		# list all data in history
+		print(history.history.keys())
+		# summarize history for accuracy
+		plt.plot(history.history['categorical_accuracy'])
+		plt.plot(history.history['val_categorical_accuracy'])
+		plt.title('model accuracy')
+		plt.ylabel('accuracy')
+		plt.xlabel('epoch')
+		plt.legend(['train', 'test'], loc='upper left')
+		plt.show()
+		# summarize history for loss
+		plt.plot(history.history['loss'])
+		plt.plot(history.history['val_loss'])
+		plt.title('model loss')
+		plt.ylabel('loss')
+		plt.xlabel('epoch')
+		plt.legend(['train', 'test'], loc='upper left')
+		plt.show()
 		
 	# 5. LOAD BEST MODEL
 	model.load_weights('best_model.h5')

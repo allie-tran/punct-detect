@@ -61,8 +61,8 @@ def read_data(file, cutting_freq = 5,
 			punct_list = np.unique(puncts)
 			id_to_punct = defaultdict(lambda: 'O')
 			for i, punct in enumerate(punct_list):
-				punct_to_id[punct] = i+1
-				id_to_punct[i+1] = punct
+				punct_to_id[punct] = i
+				id_to_punct[i] = punct
 		
 		# Padding
 		pad_words = []
@@ -80,7 +80,7 @@ def read_data(file, cutting_freq = 5,
 			padding = max_length - (end_index-start_index+1)
 			if padding>0:
 				w = ['<PAD>'] * padding + w
-				p = ['<PAD>'] * padding + p
+				p = ['O'] * padding + p
 			pad_puncts = pad_puncts + p
 			pad_words = pad_words + w
 			start_index = end_index + 1
@@ -106,3 +106,34 @@ test_words, results, _ , _ , _, _, max2= \
 	          word_to_id,id_to_word,punct_to_id,id_to_punct)
 test_ids,test_p_ids = process_data(test_words,results,word_to_id,punct_to_id)
 max_length = max(max1,max2)
+
+from keras import backend as K
+
+
+def weighted_categorical_crossentropy(weights):
+	"""
+	A weighted version of keras.objectives.categorical_crossentropy
+
+	Variables:
+		weights: numpy array of shape (C,) where C is the number of classes
+
+	Usage:
+		weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+		loss = weighted_categorical_crossentropy(weights)
+		model.compile(loss=loss,optimizer='adam')
+	"""
+	
+	weights = K.variable(weights)
+	
+	def loss(y_true, y_pred):
+		# scale predictions so that the class probas of each sample sum to 1
+		y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+		# clip to prevent NaN's and Inf's
+		y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+		# calc
+		loss = y_true * K.log(y_pred) * weights
+		loss = -K.sum(loss, -1)
+		return loss
+	
+	return loss
+
