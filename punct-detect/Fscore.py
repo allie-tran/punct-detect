@@ -15,10 +15,10 @@ def statistic(s):
         arr = line.split(' ')
         
         tag = arr[-2]
-        if tag != '<PAD>' and tag not in label and len(tag) >= 1:
+        if tag != 'O' and tag not in label and len(tag) >= 1:
           label.append(tag)
 
-    label.append('<PAD>')
+    label.append('O')
     predict = []
     d = dict()
     inv_d = dict()

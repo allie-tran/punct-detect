@@ -1,7 +1,7 @@
 from nltk import FreqDist
 from collections import defaultdict
 from collections import namedtuple
-
+from itertools import product
 import numpy as np
 
 Sentence = namedtuple('Sentence',['words', 'puncts'])
@@ -57,17 +57,20 @@ def read_data(file, cutting_freq = 5,
 				
 		# Creating index dictionary for punctuations
 		if punct_to_id is None:
-			punct_to_id = defaultdict(lambda: 0)
+			punct_to_id = {'O' : 0}
 			punct_list = np.unique(puncts)
-			id_to_punct = defaultdict(lambda: 'O')
-			for i, punct in enumerate(punct_list):
-				punct_to_id[punct] = i
-				id_to_punct[i] = punct
+			id_to_punct = {0 : 'O'}
+			i = 1
+			for punct in punct_list:
+				if punct != 'O':
+					punct_to_id[punct] = i
+					id_to_punct[i] = punct
+					i+=1
 		
 		# Padding
 		pad_words = []
 		pad_puncts = []
-		max_length = 231
+		max_length = 86
 		start_index = 0
 		for end_index in end_indexes:
 			max_length = max(max_length,end_index-start_index+1)
@@ -107,33 +110,58 @@ test_words, results, _ , _ , _, _, max2= \
 test_ids,test_p_ids = process_data(test_words,results,word_to_id,punct_to_id)
 max_length = max(max1,max2)
 
-from keras import backend as K
-
-
-def weighted_categorical_crossentropy(weights):
-	"""
-	A weighted version of keras.objectives.categorical_crossentropy
-
-	Variables:
-		weights: numpy array of shape (C,) where C is the number of classes
-
-	Usage:
-		weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
-		loss = weighted_categorical_crossentropy(weights)
-		model.compile(loss=loss,optimizer='adam')
-	"""
-	
-	weights = K.variable(weights)
-	
-	def loss(y_true, y_pred):
-		# scale predictions so that the class probas of each sample sum to 1
-		y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
-		# clip to prevent NaN's and Inf's
-		y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-		# calc
-		loss = y_true * K.log(y_pred) * weights
-		loss = -K.sum(loss, -1)
-		return loss
-	
-	return loss
-
+# from keras import backend as K
+#
+#
+# def weighted_categorical_crossentropy(weights):
+# 	"""
+# 	A weighted version of keras.objectives.categorical_crossentropy
+#
+# 	Variables:
+# 		weights: numpy array of shape (C,) where C is the number of classes
+#
+# 	Usage:
+# 		weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+# 		loss = weighted_categorical_crossentropy(weights)
+# 		model.compile(loss=loss,optimizer='adam')
+# 	"""
+#
+# 	weights = K.variable(weights)
+#
+# 	def loss(y_true, y_pred):
+# 		# scale predictions so that the class probas of each sample sum to 1
+# 		y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+# 		# clip to prevent NaN's and Inf's
+# 		y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+# 		# calc
+# 		loss = y_true * K.log(y_pred) * weights
+# 		loss = -K.sum(loss, -1)
+# 		return loss
+#
+# 	return loss
+#
+# class WeightedCategoricalCrossEntropy(object):
+#
+#   def __init__(self, weights):
+#     nb_cl = len(weights)
+#     self.weights = np.ones((nb_cl, nb_cl))
+#     for class_idx, class_weight in weights.items():
+#       self.weights[0][class_idx] = class_weight
+#       self.weights[class_idx][0] = class_weight
+#     self.__name__ = 'w_categorical_crossentropy'
+#
+#   def __call__(self, y_true, y_pred):
+#     return self.w_categorical_crossentropy(y_true, y_pred)
+#
+#   def w_categorical_crossentropy(self, y_true, y_pred):
+#     nb_cl = len(self.weights)
+#     final_mask = K.zeros_like(y_pred[..., 0])
+#     y_pred_max = K.max(y_pred, axis=-1)
+#     y_pred_max = K.expand_dims(y_pred_max, axis=-1)
+#     y_pred_max_mat = K.equal(y_pred, y_pred_max)
+#     for c_p, c_t in product(range(nb_cl), range(nb_cl)):
+#         w = K.cast(self.weights[c_t, c_p], K.floatx())
+#         y_p = K.cast(y_pred_max_mat[..., c_p], K.floatx())
+#         y_t = K.cast(y_pred_max_mat[..., c_t], K.floatx())
+#         final_mask += w * y_p * y_t
+#     return K.categorical_crossentropy(y_pred, y_true) * final_mask
