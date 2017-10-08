@@ -11,7 +11,7 @@ from keras.utils import plot_model
 import matplotlib.pyplot as plt
 import os
 import functools
-
+from Fscore import statistic
 
 os.environ["PATH"] += os.pathsep + 'C:/Program Files (x86)/Graphviz2.38/bin/'
 
@@ -31,7 +31,7 @@ TIME_STEPS = max_length
 TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(ids)//(TIME_STEPS*BATCH_SIZE))
 TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
 EMBEDDING_SIZE = 128
-HIDDEN = 64
+HIDDEN = 128
 NUM_EPOCH = 100
 LEARNING_RATE = 0.001
 
@@ -71,32 +71,40 @@ def run(trained = False):
     print(weight)
     d_weight = np.ones([len(unique)])
     for i in range(len(weight)):
-        if unique[i] == 'O':
-            weight[i] *= 100
         d_weight[punct_to_id[unique[i]]] = weight[i]
     print(d_weight)
     # ncce = functools.partial(w_categorical_crossentropy, weights=d_weight)
     
-    # 1. DEFINING THE MODEL
-    model = Sequential()
-    model.add(Embedding(input_dim=VOCAB_SIZE, input_length=TIME_STEPS,
-                       output_dim=EMBEDDING_SIZE))
+    # 1. DEFINING THE MODE
+    a = Input(shape=(TIME_STEPS,))
+    embedding = Embedding(input_dim=VOCAB_SIZE,
+                          output_dim=EMBEDDING_SIZE)(a)
     # ----------------------------------------- #
-    model.add(Bidirectional(LSTM(HIDDEN, return_sequences=True,
-                                 kernel_initializer='lecun_uniform'),
-                            merge_mode='concat'))
-    model.add(Dropout(0.5))
+    attention = Dense(EMBEDDING_SIZE,activation='sigmoid')(embedding)
+    dropout = Dropout(0.5)(attention)
+    new_input = Multiply()([embedding,attention])
+    # ----------------------------------------- #
+    lstm1 = LSTM(HIDDEN, return_sequences=True,
+                                 kernel_initializer='lecun_uniform')(new_input)
+    dropout1 = Dropout(0.5)(lstm1)
+    lstm2 = LSTM(HIDDEN, return_sequences=True,
+                   kernel_initializer='lecun_uniform',
+                   go_backwards=True)(dropout1)
     # (batch, step, hidden)
     # # -----------------------------------------#
-    model.add(Bidirectional(LSTM(HIDDEN, return_sequences=True,
-                                 kernel_initializer='lecun_uniform'),
-                            merge_mode='concat'))
+    dropout2 = Dropout(0.5)(lstm2)
+    lstm3 = LSTM(HIDDEN, return_sequences=True,
+                 kernel_initializer='lecun_uniform')(dropout2)
+    dropout3 = Dropout(0.5)(lstm3)
+    lstm4 = LSTM(HIDDEN, return_sequences=True,
+                 kernel_initializer='lecun_uniform',
+                 go_backwards=True)(dropout3)
     # (batch, step, hidden)
     # ------------------------------------------#
-    model.add(Dropout(0.5))
-    model.add(TimeDistributed(Dense(PUNCT_TYPES, activation='softmax')))
+    dropout4 = Dropout(0.5)(lstm4)
+    final = TimeDistributed(Dense(PUNCT_TYPES, activation='softmax'))(dropout4)
+    model = Model(inputs=a,outputs=final)
     # (batch, step, punct_types)
-    
     # 2. COMPILING
     opt = optimizers.rmsprop(lr=LEARNING_RATE)
     model.compile(optimizer=opt,
@@ -139,38 +147,63 @@ def run(trained = False):
         # plt.show()
         
     # 5. LOAD BEST MODEL
-    model.load_weights('best_model.h5')
+    model.load_weights('final_model.h5')
     
     # 6. EVALUATION
     # loss, acc = model.evaluate(X, y)
+    get_layer_output = K.function([model.layers[0].input, K.learning_phase()],
+                                      [model.layers[1].output])
     
-    # 7. MAKE PREDICTIONS
-    print('Predicting...')
-    # On training data
-    with open('../result/train_result.txt', 'w',encoding='utf_8') as f:
-        predictions = model.predict_classes(X)
-        predictions = predictions.reshape(-1) # flatten
-        # change from id to punctuations
-        preds = [id_to_punct[p_ids] for p_ids in predictions]
-        for i in range(TRAINING_SIZE):
-            if words[i] != '<PAD>':
-                f.write("{word} {punct} {pred}\n".format(word=words[i],
-                                                     punct=puncts[i],
-                                                     pred=preds[i]))
+    x = X[0];
+    print(np.shape(x));
+    x = x.reshape(-1,TIME_STEPS)
+    # output in test mode = 0
+    layer_output = get_layer_output([x, 0])[0]
+    print(layer_output)
+    #
+    # # output in train mode = 1
+    # layer_output = get_layer_output([x, 1])[0]
+    # print(layer_output)
+
+    get_layer_output = K.function([model.layers[0].input, K.learning_phase()],
+                                  [model.layers[2].output])
+    # output in test mode = 0
+    layer_output = get_layer_output([x, 0])[0]
+    print(layer_output)
+    #
+    # # output in train mode = 1
+    # layer_output = get_layer_output([x, 1])[0]
+    # print(layer_output)
     
-    # On testing data
-    with open('../result/test_result.txt', 'w',encoding='utf_8') as f:
-        X, y = get_data(train_or_test="test")
-        predictions = model.predict_classes(X)
-        predictions = predictions.reshape(-1)
-        preds = [id_to_punct[p_ids] for p_ids in predictions]
-        for i in range(TESTING_SIZE):
-            if test_words[i] != '<PAD>':
-                f.write("{word} {punct} {pred}\n".format(word=test_words[i],
-                                                     punct=results[i],
-                                                     pred=preds[i]))
+    # # 7. MAKE PREDICTIONS
+    # print('Predicting...')
+    # # On training data
+    # with open('../result/train_result.txt', 'w',encoding='utf_8') as f:
+    #     predictions = model.predict_classes(X)
+    #     predictions = predictions.reshape(-1) # flatten
+    #     # change from id to punctuations
+    #     preds = [id_to_punct[p_ids] for p_ids in predictions]
+    #     for i in range(TRAINING_SIZE):
+    #         if words[i] != '<PAD>':
+    #             f.write("{word} {punct} {pred}\n".format(word=words[i],
+    #                                                  punct=puncts[i],
+    #                                                  pred=preds[i]))
+    #
+    # # On testing data
+    # with open('../result/test_result.txt', 'w',encoding='utf_8') as f:
+    #     X, y = get_data(train_or_test="test")
+    #     predictions = model.predict_classes(X)
+    #     predictions = predictions.reshape(-1)
+    #     preds = [id_to_punct[p_ids] for p_ids in predictions]
+    #     for i in range(TESTING_SIZE):
+    #         if test_words[i] != '<PAD>':
+    #             f.write("{word} {punct} {pred}\n".format(word=test_words[i],
+    #                                                  punct=results[i],
+    #                                                  pred=preds[i]))
 
 
 if __name__ == "__main__":
     # trained = input("Use trained model? (y/n):")
     run(False)
+    statistic('../result/test_result.txt')
+    statistic('../result/train_result.txt')
