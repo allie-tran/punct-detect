@@ -66,44 +66,57 @@ def read_data(file, cutting_freq = 5,
 				punct_to_id[punct] = i
 				id_to_punct[i] = punct
 				i+=1
-			id_to_punct[punct_to_id['O']] = 'O'
+			id_to_punct[punct_to_id['<PAD>']] = 'O'
 		
-		# Padding
-		pad_words = []
-		pad_puncts = []
-		max_length = 86
+		# # Padding
+		data_words = []
+		data_puncts = []
+		max_length = 231
 		start_index = 0
-		for end_index in end_indexes:
-			max_length = max(max_length,end_index-start_index+1)
-			start_index = end_index + 1
-			
-		start_index = 0
+		# for end_index in end_indexes:
+		# 	max_length = max(max_length,end_index-start_index+1)
+		# 	start_index = end_index + 1
+		#
+		# start_index = 0
+		# for end_index in end_indexes:
+		# 	p = puncts[start_index: end_index]
+		# 	w = words[start_index:end_index]
+		# 	padding = max_length - (end_index-start_index+1)
+		# 	if padding>0:
+		# 		w = ['<PAD>'] * padding + w
+		# 		p = ['<PAD>'] * padding + p
+		# 	data_puncts = data_puncts + p
+		# 	data_words = data_words + w
+		# 	start_index = end_index + 1
+		
+		# Change into list of sentences
+		data_puncts = defaultdict(lambda : []) # len -> array
+		data_words = defaultdict(lambda : [])
 		for end_index in end_indexes:
 			p = puncts[start_index: end_index]
 			w = words[start_index:end_index]
-			padding = max_length - (end_index-start_index+1)
-			if padding>0:
-				w = ['<PAD>'] * padding + w
-				p = ['<PAD>'] * padding + p
-			pad_puncts = pad_puncts + p
-			pad_words = pad_words + w
+			if len(p)>0:
+				data_puncts[len(p)].append(p)
+				data_words[len(p)].append(w)
 			start_index = end_index + 1
-		
-		return pad_words, pad_puncts, word_to_id, id_to_word, punct_to_id, id_to_punct, max_length
+		return data_words, data_puncts, word_to_id, id_to_word, punct_to_id, id_to_punct, max_length
+
 
 def process_data(words,puncts,word_to_id,punct_to_id):
 	"""Change words and punctuations into indexes"""
-	ids = []
-	p_ids = []
-	for i in range(len(words)):
-		ids.append(word_to_id[words[i]])
-		p_ids.append(punct_to_id[puncts[i]])
-	return ids,p_ids
+	ids = defaultdict(lambda : [])
+	p_ids = defaultdict(lambda : [])
+	for l in words.keys():
+		for i in range(len(words[l])):
+			ids[l].append([word_to_id[w] for w in words[l][i]])
+			p_ids[l].append([punct_to_id[p] for p in puncts[l][i]])
+		
+	return ids, p_ids
 
 
 words, puncts, word_to_id, id_to_word, punct_to_id, id_to_punct, max1 = \
 	read_data(r'../data/run/punc/punc.tr',5)
-ids,p_ids = process_data(words,puncts,word_to_id,punct_to_id)
+ids, p_ids = process_data(words,puncts,word_to_id,punct_to_id)
 
 test_words, results, _ , _ , _, _, max2= \
 	read_data(r'../data/run/punc/punc.ts',5,

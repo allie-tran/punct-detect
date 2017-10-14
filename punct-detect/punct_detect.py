@@ -28,30 +28,21 @@ BATCH_SIZE = 16
 VOCAB_SIZE = len(word_to_id)
 PUNCT_TYPES = len(punct_to_id) # O, COMMA, PERIOD
 TIME_STEPS = max_length
-TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(ids)//(TIME_STEPS*BATCH_SIZE))
-TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
+# TRAINING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(ids)//(TIME_STEPS*BATCH_SIZE))
+# TESTING_SIZE = (TIME_STEPS*BATCH_SIZE) * (len(test_ids)//(TIME_STEPS*BATCH_SIZE))
 EMBEDDING_SIZE = 128
-HIDDEN = 128
-NUM_EPOCH = 100
+HIDDEN = 256
+NUM_EPOCH = 50
 LEARNING_RATE = 0.001
 
 # Input must be 3D, comprised of samples, timesteps, and features.
-def get_data(train_or_test="train"):
+def get_data_batch_1(l, ids, p_ids):
     """Get data suitable for the model"""
-    if train_or_test == "train":
-        X = np.array(ids)[:TRAINING_SIZE]
-        # 	X = indices_to_one_hot(ids, vocab_size)[:149300]
-        y = indices_to_one_hot(p_ids, PUNCT_TYPES)[:TRAINING_SIZE]
-    else:
-        X = np.array(test_ids)[:TESTING_SIZE]
-        # 	X = indices_to_one_hot(test_ids, vocab_size)[:89100]
-        y = indices_to_one_hot(test_p_ids, PUNCT_TYPES)[:TESTING_SIZE]
-    
-    X = X.reshape(-1, TIME_STEPS)  # columns are timesteps with 1 feature
-    y = y.reshape(-1, TIME_STEPS, PUNCT_TYPES)
-
+    X = np.reshape(ids,(-1,l))
+    y = [[indices_to_one_hot(p_id, PUNCT_TYPES) for p_id in pids]
+         for pids in p_ids]
+    y = np.reshape(y,(-1,l,PUNCT_TYPES))
     return X, y
-
 
 
 # *************************************************************************** #
@@ -59,29 +50,13 @@ def get_data(train_or_test="train"):
 # *************************************************************************** #
 
 def run(trained = False):
-    X, y = get_data("train")
-    unique = np.unique(puncts)
-    weight = class_weight.compute_class_weight('balanced',
-                                               unique,
-                                               puncts[:TRAINING_SIZE])
-    print(unique)
-    print([punct_to_id[u] for u in unique])
-    idx = indices_to_one_hot([punct_to_id[u] for u in unique],len(unique))
-    print(idx)
-    print(weight)
-    d_weight = np.ones([len(unique)])
-    for i in range(len(weight)):
-        d_weight[punct_to_id[unique[i]]] = weight[i]
-    print(d_weight)
-    # ncce = functools.partial(w_categorical_crossentropy, weights=d_weight)
     
     # 1. DEFINING THE MODE
-    a = Input(shape=(TIME_STEPS,))
-    embedding = Embedding(input_dim=VOCAB_SIZE,
-                          output_dim=EMBEDDING_SIZE)(a)
+    a = Input(batch_shape=(1,None))
+    embedding = Embedding(input_dim=VOCAB_SIZE,output_dim=EMBEDDING_SIZE)(a)
     # ----------------------------------------- #
-    attention = Dense(EMBEDDING_SIZE,activation='sigmoid')(embedding)
-    dropout = Dropout(0.5)(attention)
+    dropout = Dropout(0.5)(embedding)
+    attention = Dense(EMBEDDING_SIZE,activation='sigmoid')(dropout)
     new_input = Multiply()([embedding,attention])
     # ----------------------------------------- #
     lstm1 = LSTM(HIDDEN, return_sequences=True,
@@ -102,108 +77,103 @@ def run(trained = False):
     # (batch, step, hidden)
     # ------------------------------------------#
     dropout4 = Dropout(0.5)(lstm4)
-    final = TimeDistributed(Dense(PUNCT_TYPES, activation='softmax'))(dropout4)
+    final = TimeDistributed(Dense(PUNCT_TYPES, activation='sigmoid'))(dropout4)
     model = Model(inputs=a,outputs=final)
     # (batch, step, punct_types)
     # 2. COMPILING
     opt = optimizers.rmsprop(lr=LEARNING_RATE)
     model.compile(optimizer=opt,
-                  loss='categorical_crossentropy',
-                  metrics=['categorical_accuracy'])
+                  loss='binary_crossentropy',
+                  metrics=['accuracy'])
     
     # 3. CHECKPOINTS
-    checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss',
-                                 verbose=1, save_best_only=True,
-                                 mode='min',save_weights_only=True)
-    earlyStopping = EarlyStopping(monitor='val_loss', patience=5, verbose=0, mode='min', min_delta=1e-5)
-    callbacks_list = [earlyStopping, checkpoint]
+    # checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss',
+    #                              verbose=1, save_best_only=True,
+    #                              mode='min',save_weights_only=True)
+    # earlyStopping = EarlyStopping(monitor='val_loss', patience=3, verbose=0, mode='min', min_delta=1e-5)
+    # callbacks_list = [earlyStopping, checkpoint]
     
     if not trained:
-        # 4. FITTING
-        model.summary()
+        # # 4. FITTING
         plot_model(model, to_file='model.png')
-        history = model.fit(X, y, validation_split= 0.2, batch_size=BATCH_SIZE,
-                            epochs=NUM_EPOCH, verbose=2, class_weight=d_weight,
-                            callbacks=callbacks_list)
+        model.summary()
+        # history = model.fit(X, y, validation_split= 0.2, batch_size=BATCH_SIZE,
+        #                     epochs=NUM_EPOCH, verbose=2, class_weight=d_weight,
+        #                     callbacks=callbacks_list)
+        # fit network
+        for i in range(NUM_EPOCH):
+            print("=================================================")
+            print("EPOCH", i)
+            print("=========")
+            for l in words.keys():
+                X, y = get_data_batch_1(l, ids[l], p_ids[l])
+                # print('-------------------------------------------')
+                # print(X)
+                # print(y)
+                model.fit(X,y, class_weight=[0,10,10,20,1],
+                          epochs=1, batch_size=1, verbose=0, shuffle=False)
+            
+            showid = np.random.randint(20)
+            while showid not in ids:
+                showid = np.random.randint(20)
+            predictions = model.predict(np.reshape(ids[showid][0],(1,-1)), batch_size=1)
+            predictions = np.argmax(predictions, axis=2)
+            print(predictions.shape)
+            predictions = predictions.reshape(-1)
+            # change from id to punctuations
+            preds = [id_to_punct[p_ids] for p_ids in predictions]
+            print(words[showid][0])
+            print(puncts[showid][0])
+            print(preds)
+            if i % 5 == 0:
+                model.save_weights("model_iter_{iter}.h5".format(iter=i))
+
         model.save_weights("final_model.h5")
         
-        # # list all data in history
-        # print(history.history.keys())
-        # # summarize history for accuracy
-        # plt.plot(history.history['categorical_accuracy'])
-        # plt.plot(history.history['val_categorical_accuracy'])
-        # plt.title('model accuracy')
-        # plt.ylabel('accuracy')
-        # plt.xlabel('epoch')
-        # plt.legend(['train', 'test'], loc='upper left')
-        # plt.show()
-        # # summarize history for loss
-        # plt.plot(history.history['loss'])
-        # plt.plot(history.history['val_loss'])
-        # plt.title('model loss')
-        # plt.ylabel('loss')
-        # plt.xlabel('epoch')
-        # plt.legend(['train', 'test'], loc='upper left')
-        # plt.show()
-        
     # 5. LOAD BEST MODEL
-    model.load_weights('final_model.h5')
+    model.load_weights('model_iter_20.h5')
     
     # 6. EVALUATION
     # loss, acc = model.evaluate(X, y)
-    get_layer_output = K.function([model.layers[0].input, K.learning_phase()],
-                                      [model.layers[1].output])
     
-    x = X[0];
-    print(np.shape(x));
-    x = x.reshape(-1,TIME_STEPS)
-    # output in test mode = 0
-    layer_output = get_layer_output([x, 0])[0]
-    print(layer_output)
-    #
-    # # output in train mode = 1
-    # layer_output = get_layer_output([x, 1])[0]
-    # print(layer_output)
+    # 7. MAKE PREDICTIONS
+    print('Predicting...')
+    # On training data
+    with open('../result/train_result.txt', 'w',encoding='utf_8') as f:
+        for l in words.keys():
+            X, y = get_data_batch_1(l, ids[l], p_ids[l])
+            for j in range(len(X)):
+                predictions = model.predict(np.reshape(X[j],(1,-1)))
+                predictions = np.argmax(predictions, axis=2)
+                # print(predictions.shape)
+                predictions = predictions.reshape(-1)
+                # change from id to punctuations
+                preds = [id_to_punct[p_ids] for p_ids in predictions]
+                for k in range(l):
+                    f.write("{word} {punct} {pred}\n".format(word=words[l][j][k],
+                                                         punct=id_to_punct[p_ids[l][j][k]],
+                                                         pred=preds[k]))
 
-    get_layer_output = K.function([model.layers[0].input, K.learning_phase()],
-                                  [model.layers[2].output])
-    # output in test mode = 0
-    layer_output = get_layer_output([x, 0])[0]
-    print(layer_output)
-    #
-    # # output in train mode = 1
-    # layer_output = get_layer_output([x, 1])[0]
-    # print(layer_output)
-    
-    # # 7. MAKE PREDICTIONS
-    # print('Predicting...')
-    # # On training data
-    # with open('../result/train_result.txt', 'w',encoding='utf_8') as f:
-    #     predictions = model.predict_classes(X)
-    #     predictions = predictions.reshape(-1) # flatten
-    #     # change from id to punctuations
-    #     preds = [id_to_punct[p_ids] for p_ids in predictions]
-    #     for i in range(TRAINING_SIZE):
-    #         if words[i] != '<PAD>':
-    #             f.write("{word} {punct} {pred}\n".format(word=words[i],
-    #                                                  punct=puncts[i],
-    #                                                  pred=preds[i]))
-    #
-    # # On testing data
-    # with open('../result/test_result.txt', 'w',encoding='utf_8') as f:
-    #     X, y = get_data(train_or_test="test")
-    #     predictions = model.predict_classes(X)
-    #     predictions = predictions.reshape(-1)
-    #     preds = [id_to_punct[p_ids] for p_ids in predictions]
-    #     for i in range(TESTING_SIZE):
-    #         if test_words[i] != '<PAD>':
-    #             f.write("{word} {punct} {pred}\n".format(word=test_words[i],
-    #                                                  punct=results[i],
-    #                                                  pred=preds[i]))
+    # On testing data
+    with open('../result/test_result.txt', 'w',encoding='utf_8') as f:
+        for l in words.keys():
+
+            X, y = get_data_batch_1(l, test_ids[l], test_p_ids[l])
+            for j in range(len(X)):
+                predictions = model.predict(np.reshape(X[j],(1,-1)))
+                predictions = np.argmax(predictions, axis=2)
+                # print(predictions.shape)
+                predictions = predictions.reshape(-1)
+                # change from id to punctuations
+                preds = [id_to_punct[p_ids] for p_ids in predictions]
+                for k in range(l):
+                    f.write("{word} {punct} {pred}\n".format(word=test_words[l][j][k],
+                                                         punct=id_to_punct[test_p_ids[l][j][k]],
+                                                         pred=preds[k]))
+
 
 
 if __name__ == "__main__":
-    # trained = input("Use trained model? (y/n):")
-    run(False)
+    trained = input("Use trained model? (y/n):")
     statistic('../result/test_result.txt')
     statistic('../result/train_result.txt')
